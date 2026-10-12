@@ -1,46 +1,61 @@
 <?php
+
 namespace Models;
 
 use PDO;
-use Database;
+use Config\Database;
 
 class Product
 {
-    private PDO $db;
-    
-    public function __construct()
+    private ?PDO $db = null;
+
+    /**
+     * Конструктор для продакшена (с реальным подключением к БД)
+     */
+    public function __construct(?PDO $db = null)
     {
-        $this->db = Database::getConnection();
+        // Если PDO передан явно — используем его, иначе создаем через Database
+        $this->db = $db ?? Database::getConnection();
     }
-    
+
+    /**
+     * Фабричный метод для создания объекта БЕЗ подключения к БД
+     * Используется ТОЛЬКО в юнит-тестах для методов, не требующих БД
+     */
+    public static function createForTesting(): self
+    {
+        $instance = new self(null);
+        $instance->db = null;
+        return $instance;
+    }
+
     public function loadData(): array
     {
         $stmt = $this->db->query("SELECT * FROM products ORDER BY id");
         $products = $stmt->fetchAll();
-        
-        // Декодируем features из JSON
+
         foreach ($products as &$product) {
             if (isset($product['features']) && is_string($product['features'])) {
                 $product['features'] = json_decode($product['features'], true) ?? [];
             }
         }
-        
+
         return $products;
     }
-    
+
     public function getById(int $id): ?array
     {
         $stmt = $this->db->prepare("SELECT * FROM products WHERE id = :id");
         $stmt->execute([':id' => $id]);
         $product = $stmt->fetch();
-        
+
         if ($product && isset($product['features']) && is_string($product['features'])) {
             $product['features'] = json_decode($product['features'], true) ?? [];
         }
-        
+
         return $product ?: null;
     }
-    
+
     public function getBasketData(): array
     {
         if (session_status() === PHP_SESSION_NONE) {
@@ -48,21 +63,21 @@ class Product
         }
         $basket = $_SESSION['basket'] ?? [];
         $result = [];
-        
+
         if (empty($basket)) return $result;
-        
+
         $ids = array_keys($basket);
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        
+
         $stmt = $this->db->prepare("SELECT * FROM products WHERE id IN ($placeholders)");
         $stmt->execute($ids);
         $products = $stmt->fetchAll();
-        
+
         foreach ($products as $product) {
             if (isset($product['features']) && is_string($product['features'])) {
                 $product['features'] = json_decode($product['features'], true) ?? [];
             }
-            
+
             $quantity = $basket[$product['id']]['quantity'] ?? 1;
             $result[] = [
                 'product' => $product,
@@ -70,10 +85,10 @@ class Product
                 'subtotal' => (float)$product['price'] * $quantity
             ];
         }
-        
+
         return $result;
     }
-        
+
     public function saveData(array $orderData): bool
     {
         try {
@@ -81,7 +96,7 @@ class Product
                 INSERT INTO orders (order_id, user_id, user_email, fio, phone, delivery_type, email, address, products, total, status, created_at)
                 VALUES (:order_id, :user_id, :user_email, :fio, :phone, :delivery_type, :email, :address, :products, :total, :status, :created_at)
             ");
-            
+
             return $stmt->execute([
                 ':order_id' => $orderData['order_id'],
                 ':user_id' => $orderData['user_id'] ?? null,
@@ -101,13 +116,13 @@ class Product
             return false;
         }
     }
-    
+
     public function updateProduct(array $data): bool
     {
-        $featuresJson = isset($data['features']) && is_array($data['features']) 
-            ? json_encode($data['features']) 
+        $featuresJson = isset($data['features']) && is_array($data['features'])
+            ? json_encode($data['features'])
             : null;
-        
+
         $stmt = $this->db->prepare("
             UPDATE products SET 
                 name = :name,
@@ -119,7 +134,7 @@ class Product
                 features = :features
             WHERE id = :id
         ");
-        
+
         return $stmt->execute([
             ':id' => $data['id'],
             ':name' => $data['name'],
@@ -131,18 +146,18 @@ class Product
             ':features' => $featuresJson
         ]);
     }
-    
+
     public function addProduct(array $data): bool
     {
-        $featuresJson = isset($data['features']) && is_array($data['features']) 
-            ? json_encode($data['features']) 
+        $featuresJson = isset($data['features']) && is_array($data['features'])
+            ? json_encode($data['features'])
             : null;
-        
+
         $stmt = $this->db->prepare("
             INSERT INTO products (name, description, price, period, image, coverage, features)
             VALUES (:name, :description, :price, :period, :image, :coverage, :features)
         ");
-        
+
         return $stmt->execute([
             ':name' => $data['name'],
             ':description' => $data['description'],
@@ -153,7 +168,7 @@ class Product
             ':features' => $featuresJson
         ]);
     }
-    
+
     /**
      * 🔹 Подготовка данных заказа для сохранения
      * @param array $formData - данные из формы ($_POST)
@@ -170,19 +185,19 @@ class Product
                 $sanitized[$field] = htmlspecialchars(strip_tags($value), ENT_QUOTES, 'UTF-8');
             }
         }
-        
+
         $allSum = 0;
         $preparedProducts = [];
-        
+
         foreach ($basketData as $item) {
             if (isset($item['product'], $item['quantity'])) {
                 $product = $item['product'];
                 $quantity = max(1, (int)$item['quantity']);
                 $price = (float)$product['price'];
                 $subtotal = $price * $quantity;
-                
+
                 $allSum += $subtotal;
-                
+
                 $preparedProducts[] = [
                     'id' => (int)$product['id'],
                     'name' => htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8'),
@@ -192,7 +207,7 @@ class Product
                 ];
             }
         }
-        
+
         return [
             'order_id' => 'ORD_' . uniqid(),
             'user_id' => $_SESSION['user_id'] ?? 0,

@@ -4,12 +4,13 @@
             "Controllers\\": "Controllers/",
             "Models\\": "Models/",
             "Views\\": "Views/",
-            "Services\\": "src/Services/"
+            "Services\\": "src/Services/",
+            "Config\\": "config/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Tests\\": "tests/"
+            "Test\\": "tests/"
         }
     },
     "require-dev": {
